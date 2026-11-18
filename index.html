@@ -376,6 +376,38 @@ const CFG = {
   LESSON_HINT_MS: 1400, // на уроке: бездействие, после которого рука показывает следующий ход (до первого хода — сразу)
   DANGER_EMPTY: 4,     // пустых клеток не больше — рамка поля тревожно пульсирует
   DRAG_PULL: 0.16,     // насколько плитка тянется за пальцем (доля клетки)
+  // --- сочность v2 «сатисфай базовой механики» (18.11, Андрей: «подумать, как улучшить сатисфай от базовой механики»; DESIGN «Сатисфай базовой механики») ---
+  // Только оболочка royal-ветки. Где включено — список скинов (DEV: ?juice2=1|0). Сейчас — только candy (оценка на ссылке snap-halves-candy; royal-релиз не трогаем).
+  JUICE2: ['candy'],
+  J2_GRAB_MS: 90,      // захват: плитка поднимается (масштаб +J2_GRAB_K, подъём J2_GRAB_LIFT px) с пружинкой и тихим «ток»
+  J2_GRAB_K: 0.09,
+  J2_GRAB_LIFT: 3,
+  J2_LEAN: 0.07,       // магнит: пара подаётся навстречу (доля клетки) в последние J2_LEAN_MS скольжения; в превью свайпа — тянется на 40% и «дышит»
+  J2_LEAN_MS: 80,
+  J2_SLIDE_PULL: 0.35, // магнит: плитка, идущая в стыковку, втягивается к концу пути (к кривой 0,55r + 0,45r² подмешана r⁴ этой долей)
+  J2_DOCK_MS: 200,     // стыковка целиком (было DOCK_MS 320, из них 144 мс почти статики): контакт → замок J2_HOLD_MS → пружина целого
+  J2_HOLD_MS: 50,      // замок: половинки держатся вдавленными друг в друга (сжатие J2_SQUASH вдоль удара), шов тает за J2_SEAM_MS
+  J2_SEAM_MS: 34,
+  J2_SQUASH: 0.08,     // сжатие при ударе (было DOCK_SQUASH 0,16 — GPT: больше 6–8% — «желе»)
+  J2_OVERLAP: 0.07,    // половинки вдавлены друг в друга в момент контакта (доля клетки) — равно J2_LEAN, чтобы кадр не прыгал
+  J2_RING_R: 1.6,      // кольцо из точки стыка — до стольких радиусов фигуры (было до 2,2; лучей нет — фигура не прячется под вспышкой)
+  J2_DROP_AT: 120,     // новая половинка после стыковки падает через столько мс после контакта (было 176) и быстрее — J2_SPAWN_MS (было 300)
+  J2_SPAWN_MS: 220,
+  J2_FLY_MS: 330,      // полёт целого в заказ (было FLY_MS 460, медленный старт): быстрый взлёт и мягкий подлёт (1 − (1 − v)^2,2)
+  J2_FLY_ARC: 0.12,    // высота дуги — доля расстояния, 24…60 px (было всегда 60)
+  J2_FLY_GROW: 0.14,   // рост фигуры к середине полёта («к камере»)
+  J2_LAND_MS: 260,     // посадка: фишка подпрыгивает (+J2_CHIP_POP) и качается с затуханием, карточка вздрагивает (+J2_CARD_K), из места — кольцо
+  J2_CHIP_POP: 0.3,
+  J2_CARD_K: 0.04,
+  J2_DROP_GAP: 90,     // ход без стыковки: новая половинка падает на столько позже удара — удар звучит отдельным битом
+  J2_THUD_SQ: 0.08,    // ход без стыковки: короткое сжатие при ударе и отскок назад (доля клетки)
+  J2_RECOIL: 0.05,
+  J2_QUEUE_FF: 70,     // быстрый ввод: свайп во время падения новой половинки — падение доигрывается за столько мс (было — ход ждал до 300 мс)
+  J2_PRAISE_SOLO: false, // надпись на одиночную стыковку («Snap!»): нет — её несут вспышка, звук и полёт; серия (×2+), подарок, магнит, радужная — с надписью
+  J2_BUZZ_GRAB: 0,     // хаптика — одиночные импульсы (мс) в момент события: захват (0 — нет; GPT: не вибрировать на каждой фазе подряд), упор, «щёлк», заказ закрыт
+  J2_BUZZ_THUD: 7,
+  J2_BUZZ_SNAP: 12,
+  J2_BUZZ_ORDER: 16,
 };
 
 const STONE = -1, CRATE = -2;                              // помехи: камень вечный, ящик ломается стыковкой рядом
@@ -1295,7 +1327,8 @@ const G = {
   save: migrateSave(Object.assign({ level: 0, muted: false, haptics: true, best: {}, unlockAll: false }, loadSave())),   // unlockAll — чит «открыть все уровни» (DEV); boost — запас бустеров (заводит hud)
   slide: null,                   // { code, from, to, t0, t1 } — скользящая плитка
   drops: [],                     // [{ code, cell, t0, t1 }] — проявляющиеся раздачи (обычная и те, что упали сами, когда ходить было нечем)
-  merges: [], waves: [],                    // [{ aCell, bCell, aCode, bCode, vert, active, color, tShow, t0, t1, flyEnd, slot, target, combo }]
+  merges: [], waves: [], landRings: [],   // landRings — v2: кольцо из места в заказе/лотке при посадке { x, y, r, t0, col }
+                     // [{ aCell, bCell, aCode, bCode, vert, active, color, tShow, t0, t1, flyEnd, slot, target, combo }]
   parts: [],                     // частицы { x, y, vx, vy, t0, life, color, r }
   wiggle: null,                  // { cell, dir, t0, t1 } — вздрагивание плитки (тап или упор)
   land: null,                    // { cell, dir, t0, t1 } — сплющивание плитки при остановке
@@ -1332,7 +1365,10 @@ const G = {
 
 // --- звук: WebAudio-синтез без файлов, ленивый старт по первому жесту (§8) ---
 const NOTES = [523, 587, 659, 784, 880, 1047, 1175, 1319, 1568, 1760];
-const CANDY_SND = SKIN === 'candy';   // candy: стыковка и звяк в заказе — «хрустально-сахарные» (остальные звуки общие)   // пентатоника для щелчков по счёту стыковок
+const CANDY_SND = SKIN === 'candy';
+// Сочность v2 (CFG.JUICE2 — список скинов; только royal-ветка: royal и candy). DEV: ?juice2=1|0 — сравнить с прежним на одном скине.
+let J2 = SKIN !== 'classic' && CFG.JUICE2.indexOf(SKIN) >= 0;
+   // candy: стыковка и звяк в заказе — «хрустально-сахарные» (остальные звуки общие)   // пентатоника для щелчков по счёту стыковок
 const Audio = {
   ac: null, noiseBuf: null,
   init(){
@@ -1362,9 +1398,11 @@ const Audio = {
     src.connect(f).connect(g).connect(this.ac.destination); src.start(t); src.stop(e + 0.02);
   },
   swipe(ms){ this.hiss(Math.max(80, ms), 900, 2400, 0, 0.12); log('sound', 'swipe'); },
-  thunk(delay, dist){ const f = 200 - Math.min(5, dist || 1) * 14; this.tone(f, 100, 'sine', delay, 0.32, f * 0.5); this.hiss(50, 700, 250, delay, 0.1); log('sound', 'thunk'); },
+  thunk(delay, dist){ if (J2){ const f = 430 - Math.min(5, dist || 1) * 25; this.tone(f, 75, 'triangle', delay, 0.24, f * 0.6); this.hiss(30, 1700, 600, delay, 0.12); log('sound', 'thunk'); return; }   // v2: сухой «деревянный» ток 300–400 Гц (был глухой 130–190 Гц)
+    const f = 200 - Math.min(5, dist || 1) * 14; this.tone(f, 100, 'sine', delay, 0.32, f * 0.5); this.hiss(50, 700, 250, delay, 0.1); log('sound', 'thunk'); },
   click(k, delay, combo){                            // «щёлк» стыковки: сухой клик + аккорд, выше с каждой фигурой и серией
-    const f = NOTES[Math.min(k + Math.max(0, (combo || 1) - 1), NOTES.length - 1)];
+    const f = NOTES[Math.min((J2 ? 2 : k) + Math.max(0, (combo || 1) - 1), NOTES.length - 1)];   // v2: высота — только от серии (одиночная — всегда одна нота, ×2, ×3… — вверх по пентатонике); раньше росла со счётом уровня и упиралась в потолок с 9-й фигуры
+    if (J2) this.thock(delay);                      // v2: «тело» удара — низкий короткий толчок под звоном: половинки вдавились
     if (CANDY_SND){                                  // candy: «хрустально-сахарный» — короткий хруст сахара + стеклянный звон с негармоническими обертонами
       this.hiss(40, 8000, 4500, delay, 0.3, 'highpass'); this.hiss(28, 3200, 2200, delay + 0.012, 0.16, 'bandpass');
       this.tone(f * 2, 520, 'sine', delay + 0.02, 0.13); this.tone(f * 2 * 2.76, 300, 'sine', delay + 0.022, 0.045);
@@ -1379,14 +1417,18 @@ const Audio = {
     if ((combo || 1) >= 2) this.hiss(260, 6000, 9000, delay + 0.08, 0.06, 'highpass');   // искристый хвост серии
     log('sound', 'click', 'k=' + k + ' combo=' + combo);
   },
+  thock(delay){ this.tone(240, 70, 'sine', delay, 0.2, 120); this.hiss(35, 1800, 600, delay, 0.08, 'lowpass'); },   // v2: вдавливание при «щёлк» (без строки в журнале — пишет click)
+  grab(){ this.tone(1250, 32, 'triangle', 0, 0.045, 900); },                                                      // v2: захват плитки — тихий «ток» (без журнала — касаний много)
+  whoosh(delay, ms){ this.hiss(Math.max(120, ms), 500, 2600, delay, 0.07); log('sound', 'whoosh'); },              // v2: фигура взлетает к заказу
   order(delay){ [784, 1047, 1319].forEach((f, i) => this.tone(f, 150, 'triangle', delay + i * 0.06, 0.14)); log('sound', 'order'); },
   tray(delay){ this.tone(330, 110, 'sine', delay, 0.16, 220); this.hiss(40, 900, 500, delay, 0.08); log('sound', 'tray'); },
   over(delay){ this.tone(160, 260, 'sawtooth', delay, 0.12, 90); this.tone(120, 300, 'square', delay + 0.05, 0.06, 70); log('sound', 'over'); },
   magnet(){ this.tone(260, 300, 'sine', 0, 0.14, 880); this.hiss(200, 1500, 5000, 0.05, 0.05, 'highpass'); log('sound', 'magnet'); },
   broom(){ this.hiss(380, 2600, 700, 0, 0.22); this.hiss(200, 5000, 2500, 0.1, 0.08, 'highpass'); log('sound', 'broom'); },
   revive(){ [392, 523, 659, 784].forEach((f, i) => this.tone(f, 160, 'triangle', i * 0.07, 0.14)); log('sound', 'revive'); },
-  coin(delay){ if (CANDY_SND){ this.tone(2637, 180, 'sine', delay, 0.09); this.tone(2637 * 2.76, 110, 'sine', delay + 0.005, 0.03); this.tone(3136, 160, 'sine', delay + 0.05, 0.06); log('sound', 'slot'); return; }   // candy: леденец звякнул о леденец
-    this.tone(1568, 60, 'square', delay, 0.04); this.tone(2093, 140, 'sine', delay + 0.04, 0.12); log('sound', 'slot'); },
+  coin(delay, step){ const m = Math.pow(2, 4 * (step || 0) / 12);   // v2: step — сколько мест заказа уже заполнено до этой фишки: каждая следующая на большую терцию выше (заказ «набирается»)
+    if (CANDY_SND){ this.tone(2637 * m, 180, 'sine', delay, 0.09); this.tone(2637 * 2.76 * m, 110, 'sine', delay + 0.005, 0.03); this.tone(3136 * m, 160, 'sine', delay + 0.05, 0.06); log('sound', 'slot'); return; }   // candy: леденец звякнул о леденец
+    this.tone(1568 * m, 60, 'square', delay, 0.04); this.tone(2093 * m, 140, 'sine', delay + 0.04, 0.12); log('sound', 'slot'); },
   star(i, delay){ const f = NOTES[2 + i * 2]; this.tone(f, 320, 'triangle', delay, 0.2); this.tone(f * 2, 240, 'sine', delay + 0.02, 0.08); log('sound', 'star', 'i=' + i); },
   fanfare(delay){
     delay = Math.max(0, delay || 0);
@@ -1415,6 +1457,7 @@ const Audio = {
   win(){ this.tone(1047, 200, 'triangle', 0, 0.12); log('sound', 'win'); },
   lose(){ this.tone(330, 220, 'triangle', 0, 0.16, 220); this.tone(220, 360, 'triangle', 0.18, 0.16, 140); log('sound', 'lose'); },
 };
+function buzzAt(t, ms){ const d = t - clock(); if (d <= 4) buzz(ms); else setTimeout(() => { if (!G.paused) buzz(ms); }, d); }   // v2: импульс в момент события (упор, «щёлк», заказ), а не в момент отпускания
 function buzz(ms){ if (G.save.haptics === false) return; if (ROYAL) ms = Array.isArray(ms) ? CFG.BUZZ_MS : Math.min(ms, CFG.BUZZ_MS + 3); /* royal: один мягкий импульс */ try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
 
 // --- экраны: DOM-оверлеи, любой открывается кодом (goto) и, в DEV, хешем (§6, §11) ---
@@ -1571,7 +1614,7 @@ function clearFx(hard){
   G.fxOpen = G.fxOpen.filter(keep);
   G.merges = hard ? [] : G.merges.filter(M => now >= M.t0);
   G.slide = null; G.drops = []; G.wiggle = null; G.land = null; G.honeyHit = null; G.hit = null; G.ghosts = []; G.sweep = null;
-  if (hard){ G.parts = []; G.praise = []; G.shake = null; G.combo = 0; G.crateFly = []; G.trayFlash = 0; G.waves = []; G.trayWob = 0; }
+  if (hard){ G.parts = []; G.praise = []; G.shake = null; G.combo = 0; G.crateFly = []; G.trayFlash = 0; G.waves = []; G.trayWob = 0; G.landRings = []; }
   G.fxUntil = G.fxOpen.reduce((m, f) => Math.max(m, f.t1), 0);
 }
 function startLevel(li){
@@ -1601,7 +1644,7 @@ function hud(){
 // --- ход в оболочке: ядро считает, оболочка раскладывает эффекты по абсолютному времени ---
 function doMove(m){
   if (!G.s || G.screen !== 'game' || G.paused || G.ending || isWin(G.s) || isLose(G.s)) return false;
-  if (G.drops.some(D => clock() < D.t1)){ G.queued = m; log('input', 'queued', 'cell=' + (m >> 2)); return true; }   // 17.11: новая половинка ещё падает — ход подождёт, пока она встанет (раньше ход обрывал падение)
+  if (G.drops.some(D => clock() < D.t1)){ G.queued = m; log('input', 'queued', 'cell=' + (m >> 2)); if (J2) dropsFastForward(); return true; }   // 17.11: новая половинка ещё падает — ход подождёт, пока она встанет (раньше ход обрывал падение)
   const i = m >> 2, d = m & 3;
   if (G.s.grid[i] <= 0) return false;
   const next = applyMove(G.s, m);
@@ -1616,6 +1659,18 @@ function doMove(m){
   if (isWin(G.s)) log('event', 'level.win', 'level=' + (G.s.li + 1) + ' moves=' + G.s.moves);
   else if (isLose(G.s)) log('event', 'level.lose', 'level=' + (G.s.li + 1) + ' moves=' + G.s.moves + ' done=' + goalProgress(G.s).done + ' why=' + loseWhy(G.s));
   return true;
+}
+// v2 (быстрый ввод): свайп во время падения новой половинки ждал до 300 мс без отклика. Теперь падение доигрывается за J2_QUEUE_FF мс
+// с той же фазы (без скачка), переезд призрака из занятой клетки пропускается. Подарок (половинка сама состыковалась) не трогаем — к нему привязана стыковка.
+function dropsFastForward(){
+  const now = clock(), ff = CFG.J2_QUEUE_FF / G.timeScale;
+  for (const D of G.drops){
+    if (D.gift || now >= D.t1 || D.t1 - now <= ff) continue;
+    if (D.rel){ D.rel = 0; D.t0 = now; D.t1 = now + ff; continue; }
+    const u = Math.max(0, Math.min(0.95, (now - D.t0) / (D.t1 - D.t0)));
+    D.t1 = now + ff; D.t0 = D.t1 - ff / (1 - u);
+  }
+  log('fx.start', 'drop.ff', 'ms=' + CFG.J2_QUEUE_FF);
 }
 function fxOpen(name, t1, info, ref){ G.fxOpen.push({ name, t1, ref }); log('fx.start', name, info); G.fxUntil = Math.max(G.fxUntil, t1); }
 const REDUCED = (() => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } })();
@@ -1636,15 +1691,16 @@ function animateMove(n){
   const L = n.last, T = clock(), ts = G.timeScale;
   const slideMs = Math.max(CFG.SLIDE_MIN_MS, L.dist * CFG.SLIDE_MS_CELL) / ts;
   const t1 = T + slideMs;
-  G.slide = { code: L.code, from: L.from, to: L.to, dir: L.dir, t0: T, t1 };
+  G.slide = { code: L.code, from: L.from, to: L.to, dir: L.dir, t0: T, t1, dock: L.partner >= 0 };
   fxOpen('slide', t1, 'cells=' + L.dist);
-  Audio.swipe(slideMs); buzz(8);
+  Audio.swipe(slideMs); if (!J2) buzz(8);   // v2: импульс не на отпускании, а на упоре / «щёлк» (buzzAt ниже)
   const g = geo(), cs = g.cell, dx = DIRS[L.dir][0], dy = DIRS[L.dir][1];
   if (L.partner < 0){
     // остановка: плитка сплющивается, у переднего края — пыль; то, во что упёрлись, вздрагивает
     // на мёде (18.11, урок мёда): «чавк» — плитка вязнет и качается дольше, лужица расплёскивается каплями и вздрагивает, звук влажный
     const honey = !!(n.floor && n.floor[L.to] === HONEY);
-    G.land = { cell: L.to, dir: L.dir, t0: t1, t1: t1 + CFG.LAND_MS * (honey ? CFG.HONEY_LAND_K : 1) / ts, honey };
+    G.land = { cell: L.to, dir: L.dir, t0: t1, t1: t1 + CFG.LAND_MS * (honey ? CFG.HONEY_LAND_K : J2 ? 1.35 : 1) / ts, honey };   // v2: удар + отскок назад — чуть дольше
+    if (J2) buzzAt(t1, CFG.J2_BUZZ_THUD);
     const x = L.to % n.w, y = (L.to - x) / n.w, bx = x + dx, by = y + dy, p = cellXY(L.to, g);
     const ex = p.x + cs / 2 + dx * cs * 0.45, ey = p.y + cs / 2 + dy * cs * 0.45;
     if (honey){
@@ -1661,11 +1717,12 @@ function animateMove(n){
   let tNext = t1, tEnd = t1;
   if (L.partner >= 0){
     tEnd = addMerge({ active: L.to, partner: L.partner, code: L.code, partnerCode: L.partnerCode, color: L.color, target: L.target, tShow: T, t0: t1, combo: G.combo, kind: 'move', evs: chain('move') });
-    Audio.click(n.served, slideMs / 1000, G.combo); buzz([10, 30, 14]);
-    tNext = t1 + CFG.DOCK_MS * 0.55 / ts;
+    Audio.click(n.served, slideMs / 1000, G.combo);
+    if (J2) buzzAt(t1, CFG.J2_BUZZ_SNAP); else buzz([10, 30, 14]);
+    tNext = t1 + (J2 ? CFG.J2_DROP_AT : CFG.DOCK_MS * 0.55) / ts;
     if (ROYAL && CLAW_ON && !L.spawn && n.next && n.every > 0){ G.clawClick = t1; Audio.latch(slideMs / 1000); }   // royal: стыковка — стопор щёлкает, захват держит дальше
   } else if (G.land && G.land.honey) Audio.squelch(slideMs / 1000); else Audio.thunk(slideMs / 1000, L.dist);
-  const sp = animateSpawns(L, T, tNext, n.served);
+  const sp = animateSpawns(L, T, tNext + (J2 && L.partner < 0 ? CFG.J2_DROP_GAP / ts : 0), n.served);   // v2: после хода без стыковки новая половинка падает чуть позже удара — удар отдельным битом
   tEnd = Math.max(tEnd, sp);
   animateEvents(L, T, t1);
   if (isWin(n)) celebrate(Math.max(tEnd, G.merges.reduce((m, M) => Math.max(m, M.flyEnd), t1), G.crateFly.reduce((m, f) => Math.max(m, f.t1), 0)));
@@ -1678,8 +1735,8 @@ function animateSpawns(L, T, t0, served){
   let t = t0, tEnd = t0;
   for (const { S, by } of list){
     const moved = S.planned >= 0 && S.planned !== S.cell, claw = ROYAL && CLAW_ON, travel = claw && moved ? CLAW.move : 0, rel = !claw && moved ? GHOST_MOVE_MS : 0;   // клетку призрака заняли — он видимо переезжает, потом падает   // royal: клетку заняли — захват везёт груз к новой
-    const d1 = t + (claw ? travel + 40 + CLAW.fall + CLAW.land : rel + CFG.SPAWN_MS) / ts, g = geo();
-    G.drops.push({ code: S.code, cell: S.cell, t0: t, t1: d1, planned: S.planned, travel, rel });
+    const d1 = t + (claw ? travel + 40 + CLAW.fall + CLAW.land : rel + (J2 ? CFG.J2_SPAWN_MS : CFG.SPAWN_MS)) / ts, g = geo();
+    G.drops.push({ code: S.code, cell: S.cell, t0: t, t1: d1, planned: S.planned, travel, rel, gift: S.partner >= 0 });
     if (claw) Audio.clack((t + travel / ts - T) / 1000);
     fxOpen('drop', d1, 'cell=' + S.cell + (S.cell !== S.planned ? ' moved' : '') + (by !== 'spawn' ? ' auto' : ''));
     Audio.plop((t - T) / 1000);
@@ -1858,26 +1915,27 @@ function winFigures(el){
 // o = { active, partner, code, partnerCode, color, target (из ядра), tShow, t0, combo, kind: move|gift|magnet, evs }.
 // Магнит: обе половинки сами летят друг к другу (tShow…t0), дальше — как обычная стыковка. Возвращает время конца цепочки событий.
 function addMerge(o){
-  const ts = G.timeScale, s = G.s, magnet = o.kind === 'magnet', col = o.color;
-  const t1 = o.t0 + CFG.DOCK_MS * (magnet ? 0.55 : 1) / ts, flyEnd = t1 + CFG.FLY_MS / ts;
+  const ts = G.timeScale, s = G.s, magnet = o.kind === 'magnet', col = o.color, j2 = J2 && !magnet;   // v2: стыковка от контакта — замок и пружина (магнит — как был)
+  const t1 = o.t0 + (j2 ? CFG.J2_DOCK_MS : CFG.DOCK_MS * (magnet ? 0.55 : 1)) / ts, flyEnd = t1 + (J2 ? CFG.J2_FLY_MS : CFG.FLY_MS) / ts;
   const first = (sideOf(o.code) & 1) === 0;                    // пришла левая/верхняя
   const aCell = first ? o.active : o.partner, bCell = first ? o.partner : o.active, vert = isVert(o.code);
   const target = o.target.kind === 'order' ? { ...o.target, n: s.queue[o.target.id].length } : o.target;
   const M = { aCell, bCell, aCode: first ? o.code : o.partnerCode, bCode: first ? o.partnerCode : o.code, vert, active: o.active, color: col, magnet,
-    tShow: o.tShow, t0: o.t0, t1, flyEnd, target, combo: o.combo || 1 };
+    tShow: o.tShow, t0: o.t0, t1, flyEnd, target, combo: o.combo || 1, j2 };
   G.merges.push(M);
   fxOpen('dock', flyEnd, SHAPES[col] + ' target=' + target.kind + ' combo=' + M.combo, M);
   // момент «щёлк»: конфетти и искры цвета фигуры, надпись, встряска
-  const g = geo(), j = mergeJoint(M, g), cx = j.x, cy = j.y, tp = o.t0 + CFG.DOCK_MS * (magnet ? 0.08 : 0.45) / ts;
-  const power = Math.min(4, M.combo);
-  burst(10 + power * 3, cx, cy, tp, { type: 'dot', colors: [col, col, -2], v: 0.2 + power * 0.03, vy: -0.1, life: 650, r: 3.2 });
-  if (CANDY) burst(CFG.CONFETTI_DOCK + power * 4, cx, cy, tp, { type: 'shard', colors: [col, col, col, -2], v: 0.22 + power * 0.03, vy: -0.2, life: 820, r: 4.6, g: 0.0009 });   // candy: сахарные крошки-осколки падают
-  else burst(CFG.CONFETTI_DOCK + power * 4, cx, cy, tp, { type: 'rect', colors: [col, -2, 2, col], v: 0.24 + power * 0.03, vy: -0.16, life: 900, r: 4, g: 0.0005 });
-  burst(5 + power, cx, cy, tp, { type: 'star', color: -2, v: 0.16, life: 520, r: 7, g: 0 });
+  const g = geo(), j = mergeJoint(M, g), cx = j.x, cy = j.y, tp = j2 ? o.t0 : o.t0 + CFG.DOCK_MS * (magnet ? 0.08 : 0.45) / ts;   // v2: всё «щёлк» — в кадре контакта
+  const power = Math.min(4, M.combo), pk = j2 ? 0.55 + 0.15 * power : 1;   // v2: одиночная — меньше частиц (фигура не тонет), серия добирает
+  burst(Math.round((10 + power * 3) * pk), cx, cy, tp, { type: 'dot', colors: [col, col, -2], v: 0.2 + power * 0.03, vy: -0.1, life: 650, r: 3.2 });
+  if (CANDY) burst(Math.round((CFG.CONFETTI_DOCK + power * 4) * pk), cx, cy, tp, { type: 'shard', colors: [col, col, col, -2], v: 0.22 + power * 0.03, vy: -0.2, life: 820, r: 4.6, g: 0.0009 });   // candy: сахарные крошки-осколки падают
+  else burst(Math.round((CFG.CONFETTI_DOCK + power * 4) * pk), cx, cy, tp, { type: 'rect', colors: [col, -2, 2, col], v: 0.24 + power * 0.03, vy: -0.16, life: 900, r: 4, g: 0.0005 });
+  burst(Math.round((5 + power) * pk), cx, cy, tp, { type: 'star', color: -2, v: 0.16, life: 520, r: 7, g: 0 });
   const rainbow = colorOf(o.code) === RAINBOW || colorOf(o.partnerCode) === RAINBOW;
   const toTray = target.kind === 'tray', over = target.kind === 'over';
   const text = magnet ? 'Magnet!' : o.kind === 'gift' ? 'Gift!' : rainbow && M.combo <= 1 ? 'Rainbow!' : M.combo <= 1 ? PRAISE[0] : PRAISE[Math.min(M.combo - 1, PRAISE.length - 1)] + ' ×' + M.combo;
-  if (!over && !toTray) praise(text, cx, cy - g.cell * 0.65, tp, P.colors[col], 24 + power * 3);   // в лоток и «не влезла» — без слов: это видно по полёту и по лотку
+  const solo = j2 && !CFG.J2_PRAISE_SOLO && o.kind === 'move' && M.combo <= 1 && !rainbow;   // v2: одиночная «Snap!» — без надписи (приедается, висит над новой половинкой); серия — с надписью
+  if (!over && !toTray && !solo) praise(text, cx, cy - g.cell * 0.65, tp, P.colors[col], 24 + power * 3);   // в лоток и «не влезла» — без слов: это видно по полёту и по лотку
   shakeAt(tp, Math.min(CFG.SHAKE_MAX, CFG.SHAKE_PX + (M.combo - 1) * 1.5));   // classic; royal — волна от стыка
   waveAt(tp, cx, cy, power);
   // фигура долетела до заказа или лотка: звон и искры
@@ -1885,7 +1943,12 @@ function addMerge(o){
     const sp = targetXY(target, g);
     burst(toTray ? 5 : 9, sp.x, sp.y, flyEnd, { type: 'star', color: 2, v: 0.12, life: 420, r: 5, g: 0 });
     burst(8, sp.x, sp.y, flyEnd, { type: 'dot', color: col, v: 0.1, life: 360, r: 2.5, g: 0 });
-    if (!toTray) Audio.coin((flyEnd - clock()) / 1000);
+    if (J2){                                         // v2: звон посадки выше с каждым заполненным местом; последняя фишка — без звона, сразу аккорд закрытия (одна награда, а не две)
+      const n = s.queue[target.id] ? s.queue[target.id].length : 1, act = s.active.find(q => q && q.id === target.id), filled = act ? act.f.filter(Boolean).length : n;
+      if (!toTray && filled < n) Audio.coin((flyEnd - clock()) / 1000, filled - 1);
+      Audio.whoosh((t1 - clock()) / 1000, (flyEnd - t1) * 0.8);
+      G.landRings.push({ x: sp.x, y: sp.y, r: sp.r, t0: flyEnd, col });
+    } else if (!toTray) Audio.coin((flyEnd - clock()) / 1000);
   }
   return scheduleDelivery(target, col, flyEnd, o.evs || []);
 }
@@ -1926,7 +1989,7 @@ function runView(now){
   G.vq.sort((a, b) => a.t - b.t);
   while (G.vq.length && G.vq[0].t <= now) G.vq.shift().fn();
 }
-function fillSlot(T, t){ const c = G.view.cards[T.slot]; if (c && c.id === T.id){ c.f[T.k] = true; c.pop[T.k] = t; } G.view.served++; G.view.landT = t; }
+function fillSlot(T, t){ const c = G.view.cards[T.slot]; if (c && c.id === T.id){ c.f[T.k] = true; c.pop[T.k] = t; c.land = t; } G.view.served++; G.view.landT = t; }   // land — v2: карточка вздрагивает от посадки
 // Что происходит после того, как фигура долетела (tL): слот заказа или лоток, затем цепочка ядра —
 // заказ закрылся, пришёл новый, лоток отдал подошедшее. Возвращает время конца цепочки.
 function scheduleDelivery(T, color, tL, evs){
@@ -1941,7 +2004,7 @@ function scheduleDelivery(T, color, tL, evs){
       vAt(t, () => { const c = G.view.cards[e.slot]; if (c && c.id === e.id) c.done = t; });
       burst(12, cx, cy, t, { type: 'star', color: 2, v: 0.16, life: 520, r: 6, g: 0 });
       burst(12, cx, cy, t, { type: 'rect', colors: [3, -2, 2], v: 0.2, vy: -0.1, life: 700, r: 3.5, g: 0.0005 });
-      Audio.order(delay(t)); nudgeAt(t);   // royal: заказ закрыт — единственный мягкий толчок
+      Audio.order(delay(t)); nudgeAt(t); if (J2) buzzAt(t, CFG.J2_BUZZ_ORDER);   // royal: заказ закрыт — единственный мягкий толчок; v2 — и импульс
       tc += CFG.ORDER_DONE_MS / ts; const t2 = tc;
       vAt(t2, () => { const c = G.view.cards[e.slot]; if (!(c && c.id === e.id)) return;
         if (ROYAL){ const gg = geo(), L = ordersLayout(gg), r = L.cards[e.slot]; if (r) G.leaving.push({ card: c, x: easeX('c' + c.id, r.x, t2), y: r.y, w: r.w, h: r.h, f: L.f, t: t2 }); }   // royal: уезжает, а не исчезает
@@ -2254,7 +2317,8 @@ cv.addEventListener('pointerdown', (e) => {
   if (adSlotOpen(G.s)){ const v = toVirtual(e), q = trayXY(G.s.cap, geo()); if (Math.hypot(v.x - q.x, v.y - q.y) <= q.r + 9){ log('input', 'tap', 'ad-slot'); offerTraySlot(); return; } }
   const i = cellAt(toVirtual(e));
   if (i < 0 || G.s.grid[i] <= 0) return;
-  G.drag = { cell: i, sx: e.clientX, sy: e.clientY, id: e.pointerId, dir: -1, len: 0 }; G.kbd = false; G.lastInputT = clock();
+  G.drag = { cell: i, sx: e.clientX, sy: e.clientY, id: e.pointerId, dir: -1, len: 0, t0: clock() }; G.kbd = false; G.lastInputT = clock();
+  if (J2 && G.s.grid[i] > 0){ Audio.grab(); if (CFG.J2_BUZZ_GRAB) buzz(CFG.J2_BUZZ_GRAB); }   // v2: «взял в руку» — тихий ток и лёгкий импульс сразу на касании
   try { cv.setPointerCapture(e.pointerId); } catch (err) {}
 });
 cv.addEventListener('pointermove', (e) => {
@@ -2763,6 +2827,13 @@ function shakeOffset(now){
   const u = (now - S.t0) / (S.t1 - S.t0), a = S.amp * (1 - u) * (1 - u);
   return { x: Math.sin(now * 0.11) * a, y: Math.cos(now * 0.137) * a * 0.7 };
 }
+// v2: из места посадки (заказ или лоток) расходится тонкое кольцо — «встало на место».
+function drawLandRings(c, now){
+  const T = CFG.J2_LAND_MS / G.timeScale; G.landRings = G.landRings.filter(q => now < q.t0 + T);
+  for (const q of G.landRings){ const u = (now - q.t0) / T; if (u < 0) continue;
+    c.save(); c.globalAlpha = 0.85 * (1 - u); c.strokeStyle = '#ffffff'; c.lineWidth = 3.5 * (1 - u) + 1; c.beginPath(); c.arc(q.x, q.y, q.r * (1 + 0.9 * ease(u)), 0, Math.PI * 2); c.stroke();
+    c.globalAlpha = 0.5 * (1 - u); c.strokeStyle = P.colors[q.col] || '#fff'; c.lineWidth = 2 * (1 - u) + 0.5; c.beginPath(); c.arc(q.x, q.y, q.r * (1.15 + 1.1 * ease(u)), 0, Math.PI * 2); c.stroke(); c.restore(); }
+}
 // Вспышка «щёлк»: белый ореол, лучи цвета фигуры и ударная волна; power растёт с серией.
 function drawBurst(c, x, y, R, col, v, power){
   const k = 1 - v;
@@ -2930,13 +3001,14 @@ function drawOrders(c, g, now, hl){
     let k = 1 + 0.06 * intro;
     if (card.done) k = 1 + 0.14 * Math.sin(Math.min(1, (now - card.done) / (CFG.ORDER_DONE_MS / ts)) * Math.PI);
     else if (card.born && !(ROYAL && card.from) && now < card.born + CFG.ORDER_IN_MS / ts) k = 0.55 + 0.45 * backOut((now - card.born) / (CFG.ORDER_IN_MS / ts));
+    if (J2 && !REDUCED && !card.done && card.land && now >= card.land && now < card.land + 140 / ts) k *= 1 + CFG.J2_CARD_K * Math.sin(Math.PI * (now - card.land) / (140 / ts));   // v2: карточка вздрагивает от посадки
     c.save(); c.translate(cx, cy); c.scale(k, k); c.translate(-cx, -cy);
     drawCard(c, x, r.y, r.w, r.h, card.done, 3 + 2.5 * intro);
     card.c.forEach((col, i) => {
       const px = cx - step * (n - 1) / 2 + step * i;
       if (card.f[i]){
-        const pop = Math.max(0, 1 - (now - card.pop[i]) / 300);
-        drawChip(c, col, px, cy, cr, 1 + 0.35 * pop); drawCheckBadge(c, px + cr * 0.72, cy + cr * 0.72, cr * 0.4);
+        const pt = now - card.pop[i], pop = J2 ? (pt >= 0 && pt < CFG.J2_LAND_MS / ts && !REDUCED ? 1 + CFG.J2_CHIP_POP * Math.exp(-pt * ts / 70) * Math.cos(pt * ts / 40) : 1) : 1 + 0.35 * Math.max(0, 1 - pt / 300);   // v2: фишка подпрыгивает и качается с затуханием
+        drawChip(c, col, px, cy, cr, pop); drawCheckBadge(c, px + cr * 0.72, cy + cr * 0.72, cr * 0.4);
         return;
       }
       c.fillStyle = P.pSlot; c.beginPath(); c.arc(px, cy, cr, 0, Math.PI * 2); c.fill();                       // пустое место — утопленная лунка (без пунктира-«строчки»)
@@ -3236,12 +3308,15 @@ function render(){
       ghost = { to: pk.to, partner: pk.partner, code: s.grid[G.drag.cell], kind: moveKind(s, m), target: G.drag.pt };
     }
   }
-  drawOrders(ctx, g, now, ghost && ghost.target && ghost.target.kind === 'order' ? ghost.target : null);
+  let hlT = ghost && ghost.target && ghost.target.kind === 'order' ? ghost.target : null;
+  if (J2 && !hlT){ const M = G.merges.find(q => q.target.kind === 'order' && now >= q.tShow && now < q.flyEnd); if (M) hlT = M.target; }   // v2: место в заказе подсвечено от отпускания до посадки — адрес доставки не теряется
+  drawOrders(ctx, g, now, hlT);
   const wob = ROYAL && !REDUCED && G.trayWob && now >= G.trayWob && now < G.trayWob + CFG.WOBBLE_MS / G.timeScale ? (() => { const u = (now - G.trayWob) / (CFG.WOBBLE_MS / G.timeScale); return CFG.WOBBLE_PX * Math.sin(u * Math.PI * 4) * (1 - u); })() : 0;
   if (wob){ ctx.save(); ctx.translate(wob, 0); }   // royal: «не влезла» — покачивается лоток, а не экран
   drawTray(ctx, g, now, ghost ? ghost.kind : 'none');
   if (wob) ctx.restore();
   if (ROYAL) drawTraySweep(ctx, g, now);
+  if (G.landRings.length) drawLandRings(ctx, now);
   // подсказка при бездействии: плитка с готовой стыковкой подмигивает в сторону пары (ход ядра, не догадка)
   let hintCell = -1, hintDir = 0, hintK = 0;
   const idle = now - G.lastInputT - CFG.IDLE_HINT_MS;
@@ -3296,9 +3371,16 @@ function render(){
       scl = 0.35 + 0.65 * backOut(v);
     }
     if (G.land && G.land.cell === i && now >= G.land.t0 && now < G.land.t1){  // остановка: сплющивание вдоль хода
-      const v = (now - G.land.t0) / (G.land.t1 - G.land.t0), q = G.land.honey ? Math.sin(v * Math.PI * 2) * (1 - v) * 0.3 : Math.sin(v * Math.PI) * (1 - v * 0.5) * 0.2;   // мёд: вязнет и качается туда-обратно
+      const v = (now - G.land.t0) / (G.land.t1 - G.land.t0);
+      if (J2 && !G.land.honey){                    // v2: короткое сжатие в упор (≈40 мс) и отскок назад с затуханием — удар читается, но тише стыковки
+        const q = REDUCED ? 0 : CFG.J2_THUD_SQ * (v < 0.2 ? Math.sin(v / 0.2 * Math.PI) : 0), back = REDUCED ? 0 : -CFG.J2_RECOIL * (v > 0.1 ? Math.sin(Math.min(1, (v - 0.1) / 0.9) * Math.PI) * (1 - v * 0.6) : 0);
+        if (G.land.dir < 2){ sx = 1 - q; sy = 1 + q * 0.7; } else { sy = 1 - q; sx = 1 + q * 0.7; }
+        x += DIRS[G.land.dir][0] * (q * 0.25 + back) * cs; y += DIRS[G.land.dir][1] * (q * 0.25 + back) * cs;
+      } else {
+      const q = G.land.honey ? Math.sin(v * Math.PI * 2) * (1 - v) * 0.3 : Math.sin(v * Math.PI) * (1 - v * 0.5) * 0.2;   // мёд: вязнет и качается туда-обратно
       if (G.land.dir < 2){ sx = 1 - q; sy = 1 + q * 0.7; } else { sy = 1 - q; sx = 1 + q * 0.7; }
       x += DIRS[G.land.dir][0] * q * cs * 0.25; y += DIRS[G.land.dir][1] * q * cs * 0.25;
+      }
     }
     if (isWin(s) && G.winT && now >= G.winT){                                // победа: оставшиеся плитки подпрыгивают волной
       const v = (now - G.winT - 70 * ((i % s.w) + Math.floor(i / s.w))) / 320;
@@ -3312,10 +3394,15 @@ function render(){
       if (G.wiggle.dir < 0) scl = 1 + Math.sin(u * Math.PI) * 0.06; else { x += DIRS[G.wiggle.dir][0] * k; y += DIRS[G.wiggle.dir][1] * k; }
     }
     if (G.drag && G.drag.cell === i){                                          // плитка тянется за пальцем «резинкой»
-      scl *= 1.06;
+      if (J2 && !REDUCED){ const gk = backOut(Math.min(1, (now - (G.drag.t0 || now)) / CFG.J2_GRAB_MS)); scl *= 1 + CFG.J2_GRAB_K * gk; y -= CFG.J2_GRAB_LIFT * gk; }   // v2: плитка поднимается с пружинкой
+      else scl *= 1.06;
       if (G.drag.dir >= 0){ const pull = Math.min(cs * CFG.DRAG_PULL, G.drag.len / scale * 0.25); x += DIRS[G.drag.dir][0] * pull; y += DIRS[G.drag.dir][1] * pull; }
     }
-    if (ghost && ghost.partner === i) scl *= 1 + 0.06 * (0.5 + 0.5 * Math.sin(now / 80));
+    if (ghost && ghost.partner === i){
+      if (J2 && !REDUCED){ const tx = ghost.to % s.w, ty = Math.floor(ghost.to / s.w), px = i % s.w, py = Math.floor(i / s.w), ln = cs * CFG.J2_LEAN * (0.3 + 0.1 * Math.sin(now / 95));   // v2: пара подаётся навстречу — «тянется» к будущему стыку
+        x += Math.sign(tx - px) * ln; y += Math.sign(ty - py) * ln; }
+      else scl *= 1 + 0.06 * (0.5 + 0.5 * Math.sin(now / 80));
+    }
     const wc = colorOf(c), need = wc === RAINBOW ? wantAny : want[wc];      // нужна открытому заказу — фигура светится, после смены заказа вспыхивает
     let glow = 0;
     if (need && !ROYAL){ const fl = Math.max(0, 1 - (now - (G.wantT[wc] || 0)) / CFG.WANT_FLASH_MS); glow = 0.5 + 0.2 * Math.sin(now / 420 + i) + 0.3 * fl; scl *= 1 + 0.07 * Math.sin(fl * Math.PI); }
@@ -3345,13 +3432,18 @@ function render(){
       continue;
     }
     const st = M.active === M.aCell ? M.bCell : M.aCell, p = cellXY(st, g);
+    if (M.j2){                                    // v2: магнит — пара подаётся навстречу в последние J2_LEAN_MS скольжения и встречает плитку вдавленной (см. стыковку)
+      const lm = CFG.J2_LEAN_MS / G.timeScale, lu = Math.max(0, Math.min(1, (now - (M.t0 - lm)) / lm)), ln = REDUCED ? 0 : cs * CFG.J2_LEAN * (0.3 + 0.7 * lu * lu);
+      drawPiece(ctx, st === M.aCell ? M.aCode : M.bCode, p.x + Math.sign(M.active % s.w - st % s.w) * ln, p.y + Math.sign(Math.floor(M.active / s.w) - Math.floor(st / s.w)) * ln, cs, 1, 1);
+    } else
     drawPiece(ctx, st === M.aCell ? M.aCode : M.bCode, p.x, p.y, cs, 1, 1 + 0.05 * Math.sin((now - M.tShow) / 70));
   }
   // скольжение
   if (G.slide && now < G.slide.t1){
     // разгон (как по льду до удара), бледный шлейф позади, растяжение вдоль хода
     const S = G.slide, a = cellXY(S.from, g), b = cellXY(S.to, g), raw = (now - S.t0) / (S.t1 - S.t0);
-    const pos = (r) => { r = Math.max(0, Math.min(1, r)); return r * 0.55 + r * r * 0.45; };
+    const mg = J2 && S.dock ? CFG.J2_SLIDE_PULL : 0;   // v2: идёт в стыковку — к концу пути втягивается (магнит)
+    const pos = (r) => { r = Math.max(0, Math.min(1, r)); return (r * 0.55 + r * r * 0.45) * (1 - mg) + mg * r * r * r * r; };
     for (let k = CFG.TRAIL_N; k >= 1; k--){
       const uk = pos(raw - k * 0.09); if (raw - k * 0.09 <= 0) continue;
       drawPiece(ctx, S.code, a.x + (b.x - a.x) * uk, a.y + (b.y - a.y) * uk, cs, 0.22 * (1 - k / (CFG.TRAIL_N + 1)), 0.92);
@@ -3381,7 +3473,41 @@ function render(){
     const a = cellXY(M.aCell, g), J = mergeJoint(M, g), edgeX = J.x, cy = J.y, R = cs * HALF_R;
     const u = (now - M.t0) / (M.t1 - M.t0);
     if (ROYAL && G.waves.length) G.waves = G.waves.filter(w => now < w.t0 + CFG.WAVE_MS / G.timeScale);
-    if (u < 0.45 && !M.magnet && ROYAL){                // royal: половинки сходятся с перелётом и «чмоком» (squash & stretch вокруг стыка)
+    if (M.j2 && u < 1){                                // v2: контакт = «щёлк» в этом же кадре. Замок: половинки вдавлены друг в друга (пара подалась навстречу на J2_OVERLAP),
+      // первые 40% замка — стоп-кадр, дальше вдавленность уходит, шов тает (целое проявляется поверх за J2_SEAM_MS); затем целое пружинит из сжатия. Вспышка и кольцо — с контакта.
+      const ts2 = G.timeScale, el = now - M.t0, hold = CFG.J2_HOLD_MS / ts2, seam = CFG.J2_SEAM_MS / ts2, pw = Math.min(4, M.combo), act = M.active === M.aCell;
+      const rr2 = el / (CFG.RING_MS / ts2);
+      if (rr2 >= 0 && rr2 < 1){ ctx.save(); ctx.globalAlpha = (1 - rr2) * (0.65 + 0.08 * pw); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = (4 + pw) * (1 - rr2) + 1;
+        ctx.beginPath(); ctx.arc(edgeX, cy, R * (0.8 + (CFG.J2_RING_R - 0.8) * easeIO(rr2)), 0, Math.PI * 2); ctx.stroke();
+        if (pw >= 2){ ctx.globalAlpha *= 0.6; ctx.strokeStyle = P.colors[M.color] || '#fff'; ctx.lineWidth *= 0.6; ctx.beginPath(); ctx.arc(edgeX, cy, R * (0.6 + (CFG.J2_RING_R + 0.4 * (pw - 1) - 0.6) * easeIO(rr2)), 0, Math.PI * 2); ctx.stroke(); }
+        ctx.restore(); }
+      const fl = 1 - el / (130 / ts2);
+      if (fl > 0){ ctx.save(); const fa = fl * (0.5 + 0.08 * pw), fg = ctx.createRadialGradient(edgeX, cy, 0, edgeX, cy, R * 1.35); fg.addColorStop(0, 'rgba(255,255,255,' + fa.toFixed(3) + ')'); fg.addColorStop(1, 'rgba(255,255,255,0)'); ctx.fillStyle = fg; ctx.beginPath(); ctx.arc(edgeX, cy, R * 1.35, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }   // вспышка — под фигурой
+      if (el < hold){
+        const w = Math.max(0, (el - hold * 0.4) / (hold * 0.6)), ov = REDUCED ? 0 : cs * CFG.J2_OVERLAP * (1 - ease(w)), sq = REDUCED ? 0 : CFG.J2_SQUASH;
+        ctx.save(); ctx.translate(J.x, J.y); if (M.vert) ctx.scale(1 + sq, 1 - sq); else ctx.scale(1 - sq, 1 + sq); ctx.translate(-J.x, -J.y);
+        const tv = el / hold; ctx.globalAlpha = Math.max(0, 1 - tv); ctx.fillStyle = P.tile;   // плитки под парой тают и сжимаются
+        if (M.vert) rr(ctx, a.x + cs * 0.06, a.y + cs * 0.06 + tv * cs * 0.3, cs * 0.88, cs * 1.88 - tv * cs * 0.6, cs * 0.2);
+        else rr(ctx, a.x + cs * 0.06 + tv * cs * 0.3, a.y + cs * 0.06, cs * 1.88 - tv * cs * 0.6, cs * 0.88, cs * 0.2);
+        ctx.fill(); ctx.globalAlpha = 1;
+        // стоявшая (не пришедшая) половинка смещена к пришедшей на ov — они вдавлены; пришедшая рисуется поверх
+        const oa = act ? 0 : ov, ob = act ? -ov : 0;   // a — левая/верхняя: её край смещается вправо/вниз (+), b — влево/вверх (−)
+        const drawA = () => M.vert ? drawHalf(ctx, M.aCode, J.x, J.y + oa, R, a.x, a.y, cs, cs * 2) : drawHalf(ctx, M.aCode, J.x + oa, J.y, R, a.x, a.y, cs * 2, cs);
+        const drawB = () => M.vert ? drawHalf(ctx, M.bCode, J.x, J.y + ob, R, a.x, a.y, cs, cs * 2) : drawHalf(ctx, M.bCode, J.x + ob, J.y, R, a.x, a.y, cs * 2, cs);
+        if (act){ drawB(); drawA(); } else { drawA(); drawB(); }
+        const sa = Math.max(0, Math.min(1, (el - (hold - seam)) / seam));                // шов тает: целое проявляется поверх половинок
+        if (sa > 0){ ctx.globalAlpha = sa; drawShape(ctx, M.color, edgeX, cy, R); ctx.globalAlpha = 1; }
+        ctx.restore();
+      } else {
+        const tb = (el - hold) * ts2, sqB = REDUCED ? 0 : CFG.J2_SQUASH * Math.exp(-tb / 45) * Math.cos(tb / 22), pop = REDUCED ? 1 : 1 + CFG.DOCK_SPRING * 0.45 * Math.sin(Math.PI * Math.min(1, tb / 130)) * (1 + 0.1 * (pw - 1));
+        ctx.save(); ctx.translate(edgeX, cy); if (M.vert) ctx.scale(pop * (1 + sqB), pop * (1 - sqB)); else ctx.scale(pop * (1 - sqB), pop * (1 + sqB));
+        drawShape(ctx, M.color, 0, 0, R);
+        if (CANDY){ const v = tb / ((CFG.J2_DOCK_MS - CFG.J2_HOLD_MS) || 1);   // candy: леденец вспыхивает «светом» и по нему пробегает блик — как раньше, но сразу после замка
+          if (v < 0.35){ ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = (1 - v / 0.35) * (0.45 + 0.05 * pw); drawShape(ctx, M.color, 0, 0, R); ctx.restore(); }
+          candyGlint(ctx, M.color, 0, 0, R, (v - 0.05) / 0.7, 0.55 * (1 - Math.max(0, v - 0.6) * 2.5)); }
+        ctx.restore();
+      }
+    } else if (u < 0.45 && !M.magnet && ROYAL){                // royal: половинки сходятся с перелётом и «чмоком» (squash & stretch вокруг стыка)
       const v = backOut(u / 0.45), gap = cs * 0.06 * (1 - v), sq = REDUCED ? 0 : CFG.DOCK_SQUASH * Math.max(0, Math.sin(Math.max(0, (u / 0.45 - 0.55) / 0.45) * Math.PI));
       ctx.save(); ctx.translate(J.x, J.y); if (M.vert) ctx.scale(1 + sq, 1 - sq); else ctx.scale(1 - sq, 1 + sq); ctx.translate(-J.x, -J.y);
       ctx.globalAlpha = 1 - v * 0.7; ctx.fillStyle = P.tile;
@@ -3420,15 +3546,17 @@ function render(){
       drawBurst(ctx, edgeX, cy, R, M.color, v, Math.min(4, M.combo));
       ctx.save(); ctx.translate(edgeX, cy); ctx.rotate(Math.sin(v * Math.PI * 2) * 0.12 * (1 - v)); drawShape(ctx, M.color, 0, 0, R * pulse); ctx.restore();
     } else {
-      const v = easeIO((now - M.t1) / (M.flyEnd - M.t1)), sp = targetXY(M.target, g);
+      const FE = J2 ? (q) => { q = q < 0 ? 0 : q > 1 ? 1 : q; return 1 - Math.pow(1 - q, 2.2); } : easeIO;   // v2: быстрый взлёт и мягкий подлёт (раньше — медленный старт: фигура «висела» у поля)
+      const v = FE((now - M.t1) / (M.flyEnd - M.t1)), sp = targetXY(M.target, g);
       if (M.target.kind === 'bonus'){ ctx.save(); ctx.globalAlpha = 1 - v; drawShape(ctx, M.color, edgeX, cy - v * 40, R * (1 - v * 0.6)); ctx.restore(); continue; }
-      const x = edgeX + (sp.x - edgeX) * v, y = cy + (sp.y - cy) * v - Math.sin(v * Math.PI) * 60;
-      ctx.save(); ctx.globalAlpha = 0.3; for (let k = 1; k <= 3; k++){ const vk = easeIO((now - M.t1 - k * 30) / (M.flyEnd - M.t1)); if (vk <= 0) continue;
-        drawShape(ctx, M.color, edgeX + (sp.x - edgeX) * vk, cy + (sp.y - cy) * vk - Math.sin(vk * Math.PI) * 60, (R + (sp.r - R) * vk) * (1 - k * 0.15)); }
+      const arc = J2 ? Math.max(24, Math.min(60, Math.hypot(sp.x - edgeX, sp.y - cy) * CFG.J2_FLY_ARC)) : 60, grow = J2 && !REDUCED ? CFG.J2_FLY_GROW : 0;
+      const x = edgeX + (sp.x - edgeX) * v, y = cy + (sp.y - cy) * v - Math.sin(v * Math.PI) * arc;
+      ctx.save(); ctx.globalAlpha = J2 ? 0.26 : 0.3; for (let k = 1; k <= (J2 ? 2 : 3); k++){ const vk = FE((now - M.t1 - k * (J2 ? 20 : 30)) / (M.flyEnd - M.t1)); if (vk <= 0) continue;   // v2: при быстром взлёте копии разлетались — две и ближе
+        drawShape(ctx, M.color, edgeX + (sp.x - edgeX) * vk, cy + (sp.y - cy) * vk - Math.sin(vk * Math.PI) * arc, (R + (sp.r - R) * vk) * (1 - k * 0.15) * (1 + grow * Math.sin(vk * Math.PI))); }
       ctx.restore();
-      if (CANDY){ const rr3 = R + (sp.r - R) * v; ctx.save(); ctx.translate(x, y); ctx.rotate(Math.sin(v * Math.PI) * 0.45); drawShape(ctx, M.color, 0, 0, rr3);   // candy: без кувырка — леденец летит с отражением: блик дважды пробегает
+      if (CANDY){ const rr3 = (R + (sp.r - R) * v) * (1 + grow * Math.sin(v * Math.PI)); ctx.save(); ctx.translate(x, y); ctx.rotate(Math.sin(v * Math.PI) * 0.45); drawShape(ctx, M.color, 0, 0, rr3);   // candy: без кувырка — леденец летит с отражением: блик дважды пробегает
         candyGlint(ctx, M.color, 0, 0, rr3, (v * 2) % 1, 0.5); ctx.restore(); }
-      else { ctx.save(); ctx.translate(x, y); ctx.rotate(v * Math.PI * 2); drawShape(ctx, M.color, 0, 0, R + (sp.r - R) * v); ctx.restore(); }
+      else { ctx.save(); ctx.translate(x, y); ctx.rotate(v * Math.PI * 2); drawShape(ctx, M.color, 0, 0, (R + (sp.r - R) * v) * (1 + grow * Math.sin(v * Math.PI))); ctx.restore(); }
     }
   }
   for (const f of G.crateFly){                                  // ящик летит в фишку цели
